@@ -329,6 +329,21 @@ function AiPanel({
           ) : (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800">{draftText || "No safe draft text."}</p>
           )}
+          <div className="mt-2 text-xs text-slate-600">
+            <p className="font-medium text-slate-500">Sources used</p>
+            {state.draft.sources.length === 0 ? (
+              <p className="mt-1">No relevant business knowledge found.</p>
+            ) : (
+              <ul className="mt-1 space-y-1">
+                {state.draft.sources.map((source) => (
+                  <li key={source.chunk_id}>
+                    {source.document_name}
+                    {source.page ? ` — page ${source.page}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       )}
     </div>

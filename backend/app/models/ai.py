@@ -1,7 +1,9 @@
 import enum
 import uuid
+from typing import Any
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, Timestamps, UUIDPrimaryKey, string_enum
@@ -85,6 +87,7 @@ class AIReplyDraft(UUIDPrimaryKey, Timestamps, Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
+    sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
 
 
 class OrganizationAISettings(UUIDPrimaryKey, Timestamps, Base):
@@ -104,3 +107,6 @@ class OrganizationAISettings(UUIDPrimaryKey, Timestamps, Base):
     max_context_messages: Mapped[int] = mapped_column(Integer)
     memory_top_k: Mapped[int] = mapped_column(Integer)
     auto_analysis_enabled: Mapped[bool] = mapped_column(default=False)
+    knowledge_enabled: Mapped[bool] = mapped_column(default=True)
+    knowledge_top_k: Mapped[int] = mapped_column(Integer, default=5)
+    knowledge_max_distance: Mapped[float] = mapped_column(Float, default=0.5)

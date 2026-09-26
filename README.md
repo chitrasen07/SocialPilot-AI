@@ -258,6 +258,48 @@ automatically in this phase.
 
 Phase 5 tests do **not** require Gemini or Meta credentials.
 
+## Knowledge base
+
+Phase 6 adds an organization-scoped knowledge base. A draft can use business documents in
+addition to customer memory and the recent conversation. Retrieved text is reference data.
+It is not instructions, and it is not treated as proof that the business information is correct.
+
+```text
+Upload → validate → store → extract → clean → chunk → embed → pgvector
+Customer message → relevant chunks → prompt → guardrails → AI draft + citations
+```
+
+Supported files: PDF, DOCX, TXT, and CSV, up to `KNOWLEDGE_MAX_FILE_SIZE_MB` (default 10).
+Scanned PDFs are not read; this phase does not run OCR. A PDF with no text layer fails
+ingestion instead of becoming an empty document.
+
+Chunks target about 600 words with an 80-word overlap (`KNOWLEDGE_CHUNK_SIZE`,
+`KNOWLEDGE_CHUNK_OVERLAP`). Embeddings reuse the Phase 5 provider and stay 768-dimensional.
+Search uses cosine distance, the same metric as customer memory, and drops chunks farther than
+`KNOWLEDGE_RETRIEVAL_MAX_DISTANCE` (default 0.5, where 0 is identical). Only documents with
+status `ready` are searchable. Tests use the deterministic mock embedding and do not call Gemini.
+
+Uploads are saved under `KNOWLEDGE_STORAGE_PATH` with generated ids, not the original filename.
+The API does not return that path. Ingestion runs on the existing Redis worker. Deleting a
+document removes its file and its chunks.
+
+| Endpoint | Who |
+| --- | --- |
+| `POST /api/knowledge/documents` | admin+ multipart upload |
+| `GET /api/knowledge/documents` | viewer+ |
+| `GET /api/knowledge/documents/{id}` | viewer+ |
+| `DELETE /api/knowledge/documents/{id}` | admin+ |
+| `POST /api/knowledge/documents/{id}/reprocess` | admin+ |
+| `POST /api/knowledge/search` | viewer+ |
+
+`POST /api/ai/generate-reply` attaches `sources` from the chunks it actually retrieved.
+Analysis does not search the knowledge base. Nothing is sent to Instagram.
+
+The UI is `/knowledge-base`. Admins can also set knowledge retrieval, top K, and the distance
+threshold under Settings. API keys and the storage path are not editable there.
+
+Phase 6 tests do **not** require Gemini or Meta credentials.
+
 ## Secrets
 
 All secrets live in environment variables on the backend. `.env` is gitignored. Firebase Admin

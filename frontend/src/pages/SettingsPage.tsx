@@ -84,6 +84,9 @@ function AiSettingsPanel({ organizationId }: { organizationId: string }) {
   const [maxTokens, setMaxTokens] = useState("256");
   const [enabled, setEnabled] = useState(true);
   const [autoAnalysis, setAutoAnalysis] = useState(false);
+  const [knowledgeEnabled, setKnowledgeEnabled] = useState(true);
+  const [knowledgeTopK, setKnowledgeTopK] = useState("5");
+  const [knowledgeDistance, setKnowledgeDistance] = useState("0.5");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -94,6 +97,9 @@ function AiSettingsPanel({ organizationId }: { organizationId: string }) {
     setMaxTokens(String(settings.data.max_output_tokens));
     setEnabled(settings.data.enabled);
     setAutoAnalysis(settings.data.auto_analysis_enabled);
+    setKnowledgeEnabled(settings.data.knowledge_enabled);
+    setKnowledgeTopK(String(settings.data.knowledge_top_k));
+    setKnowledgeDistance(String(settings.data.knowledge_max_distance));
   }, [settings.data]);
 
   async function onSubmit(event: FormEvent) {
@@ -110,6 +116,9 @@ function AiSettingsPanel({ organizationId }: { organizationId: string }) {
           temperature: Number(temperature),
           max_output_tokens: Number(maxTokens),
           auto_analysis_enabled: autoAnalysis,
+          knowledge_enabled: knowledgeEnabled,
+          knowledge_top_k: Number(knowledgeTopK),
+          knowledge_max_distance: Number(knowledgeDistance),
         },
       });
       setSaved(true);
@@ -166,6 +175,26 @@ function AiSettingsPanel({ organizationId }: { organizationId: string }) {
             name="max_output_tokens"
             value={maxTokens}
             onChange={(event) => setMaxTokens(event.target.value)}
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={knowledgeEnabled}
+              onChange={(event) => setKnowledgeEnabled(event.target.checked)}
+            />
+            Knowledge retrieval enabled
+          </label>
+          <TextField
+            label="Knowledge top K"
+            name="knowledge_top_k"
+            value={knowledgeTopK}
+            onChange={(event) => setKnowledgeTopK(event.target.value)}
+          />
+          <TextField
+            label="Knowledge relevance threshold (cosine distance)"
+            name="knowledge_max_distance"
+            value={knowledgeDistance}
+            onChange={(event) => setKnowledgeDistance(event.target.value)}
           />
           {error && <Alert tone="error">{error}</Alert>}
           {saved && <Alert tone="success">AI settings saved.</Alert>}

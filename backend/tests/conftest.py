@@ -320,8 +320,8 @@ def instagram_provider() -> FakeInstagramProvider:
 
 
 @pytest.fixture
-def settings() -> Settings:
-    return make_settings()
+def settings(tmp_path) -> Settings:
+    return make_settings(knowledge_storage_path=str(tmp_path / "knowledge"))
 
 
 @pytest.fixture

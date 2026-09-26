@@ -9,6 +9,7 @@ from app.ai.orchestrator import AIOrchestrator
 from app.api.deps import SessionDep, require_role
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.knowledge.citations import KnowledgeSource
 from app.models import AIReplyDraft, MessageAIAnalysis, OrganizationMember, Role
 from app.services import ai_data
 
@@ -73,9 +74,11 @@ class DraftOut(BaseModel):
     provider: str
     model: str
     sent: bool = False
+    sources: list[KnowledgeSource] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, row: AIReplyDraft) -> "DraftOut":
+        sources = [KnowledgeSource.model_validate(item) for item in (row.sources or [])]
         return cls(
             id=row.id,
             message_id=row.message_id,
@@ -85,6 +88,7 @@ class DraftOut(BaseModel):
             guardrail_status=row.guardrail_status.value,
             provider=row.provider,
             model=row.model,
+            sources=sources,
         )
 
 
@@ -102,6 +106,9 @@ class SettingsOut(BaseModel):
     max_context_messages: int
     memory_top_k: int
     auto_analysis_enabled: bool
+    knowledge_enabled: bool
+    knowledge_top_k: int
+    knowledge_max_distance: float
     configured: bool
 
 
@@ -112,6 +119,9 @@ class SettingsUpdate(BaseModel):
     max_context_messages: int | None = Field(default=None, ge=1, le=50)
     memory_top_k: int | None = Field(default=None, ge=0, le=20)
     auto_analysis_enabled: bool | None = None
+    knowledge_enabled: bool | None = None
+    knowledge_top_k: int | None = Field(default=None, ge=1, le=20)
+    knowledge_max_distance: float | None = Field(default=None, ge=0, le=2)
 
 
 def _orchestrator(request: Request) -> AIOrchestrator:
@@ -211,5 +221,8 @@ def _settings_out(current: ai_data.EffectiveAISettings, configured: bool) -> Set
         max_context_messages=current.max_context_messages,
         memory_top_k=current.memory_top_k,
         auto_analysis_enabled=current.auto_analysis_enabled,
+        knowledge_enabled=current.knowledge_enabled,
+        knowledge_top_k=current.knowledge_top_k,
+        knowledge_max_distance=current.knowledge_max_distance,
         configured=configured,
     )

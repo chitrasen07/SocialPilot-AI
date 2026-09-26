@@ -17,6 +17,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Uploaded knowledge files
+storage/
+
 # OS / editors
 .DS_Store
 Thumbs.db

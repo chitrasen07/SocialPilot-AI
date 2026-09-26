@@ -15,6 +15,7 @@ export class ApiError extends Error {
 interface RequestOptions {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
+  form?: FormData;
   organizationId?: string;
 }
 
@@ -23,12 +24,18 @@ async function send(path: string, options: RequestOptions, forceRefresh: boolean
   const token = await firebaseAuth?.currentUser?.getIdToken(forceRefresh);
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.organizationId) headers["X-Organization-Id"] = options.organizationId;
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  let body: BodyInit | undefined;
+  if (options.form) {
+    body = options.form;
+  } else if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
 
   return fetch(path, {
     method: options.method ?? "GET",
     headers,
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body,
   });
 }
 

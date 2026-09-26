@@ -130,6 +130,15 @@ export interface AIAnalysis {
   model: string;
 }
 
+export interface KnowledgeSource {
+  document_id: string;
+  document_name: string;
+  chunk_id: string;
+  page: number | null;
+  chunk_index: number;
+  relevance: number;
+}
+
 export interface AIDraft {
   id: string;
   message_id: string;
@@ -140,6 +149,7 @@ export interface AIDraft {
   provider: string;
   model: string;
   sent: false;
+  sources: KnowledgeSource[];
 }
 
 export interface AIMessageState {
@@ -156,5 +166,35 @@ export interface AISettings {
   max_context_messages: number;
   memory_top_k: number;
   auto_analysis_enabled: boolean;
+  knowledge_enabled: boolean;
+  knowledge_top_k: number;
+  knowledge_max_distance: number;
   configured: boolean;
+}
+
+export type KnowledgeDocumentStatus = "pending" | "processing" | "ready" | "failed" | "deleted";
+
+export interface KnowledgeDocument {
+  id: string;
+  name: string;
+  original_filename: string;
+  file_type: string;
+  file_size: number;
+  status: KnowledgeDocumentStatus;
+  chunk_count: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  processed_at: string | null;
+}
+
+export interface KnowledgeSearchHit {
+  document_id: string;
+  document_name: string;
+  chunk_id: string;
+  page: number | null;
+  chunk_index: number;
+  content: string;
+  relevance: number;
+  distance: number;
 }

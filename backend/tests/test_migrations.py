@@ -18,6 +18,7 @@ SCRATCH_DB = f"{TEST_DB_NAME}_migrations"
 SCRATCH_URL = _dev_url.set(database=SCRATCH_DB).render_as_string(hide_password=False)
 PHASE_4_TABLES = {"customers", "conversations", "messages", "customer_memories"}
 PHASE_5_TABLES = {"message_ai_analysis", "ai_reply_drafts", "ai_settings"}
+PHASE_6_TABLES = {"knowledge_documents", "knowledge_chunks"}
 
 
 async def _admin(statement: str) -> None:
@@ -65,11 +66,13 @@ def test_upgrade_downgrade_upgrade(scratch_database):
     tables = asyncio.run(_tables())
     assert PHASE_4_TABLES <= tables
     assert PHASE_5_TABLES <= tables
+    assert PHASE_6_TABLES <= tables
 
     alembic("downgrade", "-1")
-    after_ai = asyncio.run(_tables())
-    assert not PHASE_5_TABLES & after_ai
-    assert PHASE_4_TABLES <= after_ai
+    after_knowledge = asyncio.run(_tables())
+    assert not PHASE_6_TABLES & after_knowledge
+    assert PHASE_5_TABLES <= after_knowledge
+    assert PHASE_4_TABLES <= after_knowledge
 
     alembic("upgrade", "head")
     alembic("downgrade", "0003")

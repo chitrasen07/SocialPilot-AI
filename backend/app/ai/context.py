@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.embeddings import EmbeddingProvider
 from app.ai.schemas import MessageAnalysis
+from app.knowledge.citations import KnowledgeHit
+from app.knowledge.retrieval import search_knowledge
 from app.models import Message, SenderType
 from app.services.memory import search_customer_memory
 
@@ -15,6 +17,7 @@ _SNIP = 400
 class BuiltContext:
     history: list[str]
     memories: list[str]
+    knowledge: list[KnowledgeHit]
 
 
 async def build_context(
@@ -25,9 +28,12 @@ async def build_context(
     *,
     max_messages: int,
     memory_top_k: int,
+    knowledge_top_k: int = 0,
+    knowledge_max_distance: float = 0.5,
 ) -> BuiltContext:
     history = await _history(session, message, max_messages)
     memories: list[str] = []
+    knowledge: list[KnowledgeHit] = []
     if message.content and memory_top_k > 0:
         vector = await embeddings.embed(message.content[:2000])
         found = await search_customer_memory(
@@ -38,8 +44,18 @@ async def build_context(
             limit=memory_top_k,
         )
         memories = [item.content[:_SNIP] for item, _score in found]
+    if message.content and knowledge_top_k > 0:
+        query = message.content[:500]
+        knowledge_vector = await embeddings.embed(query)
+        knowledge = await search_knowledge(
+            session,
+            message.organization_id,
+            knowledge_vector,
+            top_k=knowledge_top_k,
+            max_distance=knowledge_max_distance,
+        )
     _ = analysis
-    return BuiltContext(history=history, memories=memories)
+    return BuiltContext(history=history, memories=memories, knowledge=knowledge)
 
 
 async def _history(session: AsyncSession, message: Message, limit: int) -> list[str]:

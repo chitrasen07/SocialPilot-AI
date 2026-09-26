@@ -15,6 +15,7 @@ from app.api import (
     customers,
     health,
     instagram,
+    knowledge,
     organizations,
     webhooks,
 )
@@ -88,6 +89,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(webhooks.router)
     app.include_router(customers.router)
     app.include_router(conversations.router)
+    app.include_router(knowledge.router)
     app.include_router(ai.router)
     return app
 

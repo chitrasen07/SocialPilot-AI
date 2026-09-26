@@ -11,13 +11,17 @@ from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.config import get_settings
+from app.ai.embeddings import EmbeddingProvider
+from app.ai.factory import build_ai
+from app.core.config import Settings, get_settings
 from app.core.observability import configure_logging, request_id_var
 from app.db.session import create_engine, create_sessionmaker
 from app.integrations.http import create_http_client
+from app.knowledge.ingestion import process_document, requeue_stuck_documents
+from app.knowledge.storage import LocalKnowledgeStorage
 from app.services.instagram import create_instagram_clients, refresh_expiring_tokens
 from app.services.webhooks import process_delivery, requeue_due_deliveries
-from app.workers.queue import WEBHOOK_QUEUE
+from app.workers.queue import KNOWLEDGE_QUEUE, WEBHOOK_QUEUE
 
 logger = logging.getLogger("socialpilot.worker")
 
@@ -29,11 +33,16 @@ TOKEN_REFRESH_INTERVAL_SECONDS = 6 * 3600
 
 
 async def consume(
-    stop: asyncio.Event, redis: Redis, sessionmaker: async_sessionmaker[AsyncSession]
+    stop: asyncio.Event,
+    redis: Redis,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    settings: Settings,
+    embeddings: EmbeddingProvider | None,
+    storage: LocalKnowledgeStorage,
 ) -> None:
     while not stop.is_set():
         try:
-            item = await redis.brpop([WEBHOOK_QUEUE], timeout=POP_TIMEOUT_SECONDS)
+            item = await redis.brpop([WEBHOOK_QUEUE, KNOWLEDGE_QUEUE], timeout=POP_TIMEOUT_SECONDS)
         except RedisTimeoutError:
             # redis-py may surface an empty blocking pop as a client-side timeout.
             continue
@@ -43,11 +52,21 @@ async def consume(
             continue
         if item is None:
             continue
-        raw_id = item[1]
-        token = request_id_var.set(f"delivery:{raw_id}")
+        queue_name, raw_id = item
+        token = request_id_var.set(f"{queue_name}:{raw_id}")
         try:
             async with sessionmaker() as session:
-                await process_delivery(session, uuid.UUID(raw_id))
+                if queue_name == KNOWLEDGE_QUEUE:
+                    await process_document(
+                        session,
+                        uuid.UUID(raw_id),
+                        embeddings,
+                        storage,
+                        settings,
+                        redis,
+                    )
+                else:
+                    await process_delivery(session, uuid.UUID(raw_id))
         except Exception:
             logger.exception("worker_job_crashed")
         finally:
@@ -105,8 +124,21 @@ async def run() -> None:
         async with sessionmaker() as session:
             await refresh_expiring_tokens(session, instagram)
 
-    tasks = [consume(stop, redis, sessionmaker) for _ in range(CONSUMERS)]
+    built = build_ai(settings)
+    embeddings = built[1] if built else None
+    storage = LocalKnowledgeStorage(settings.knowledge_storage_path)
+
+    async def sweep_knowledge() -> None:
+        async with sessionmaker() as session:
+            count = await requeue_stuck_documents(session, redis, settings)
+        if count:
+            logger.info("knowledge_documents_requeued", extra={"fields": {"count": count}})
+
+    tasks = [
+        consume(stop, redis, sessionmaker, settings, embeddings, storage) for _ in range(CONSUMERS)
+    ]
     tasks.append(periodic(stop, redis, "webhook_sweep", SWEEP_INTERVAL_SECONDS, sweep))
+    tasks.append(periodic(stop, redis, "knowledge_sweep", SWEEP_INTERVAL_SECONDS, sweep_knowledge))
     tasks.append(
         periodic(
             stop, redis, "instagram_token_refresh", TOKEN_REFRESH_INTERVAL_SECONDS, refresh_tokens

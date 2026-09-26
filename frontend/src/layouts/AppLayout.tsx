@@ -6,6 +6,7 @@ const navigation = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/inbox", label: "Inbox" },
   { to: "/customers", label: "Customers" },
+  { to: "/knowledge-base", label: "Knowledge Base" },
   { to: "/integrations", label: "Integrations" },
   { to: "/settings", label: "Settings" },
 ];

@@ -14,6 +14,7 @@ from app.ai.prompts import analysis_prompt, reply_prompt
 from app.ai.providers.base import AIProvider
 from app.ai.schemas import MessageAnalysis, Usage
 from app.core.config import Settings
+from app.knowledge.citations import format_knowledge
 from app.models import AIReplyDraft, DraftStatus, GuardrailStatus, MessageAIAnalysis
 from app.services import ai_data
 
@@ -104,6 +105,7 @@ class AIOrchestrator:
         message = await ai_data.get_message(session, organization_id, message_id)
         analysis = _from_row(analysis_row)
         embeddings = self._require_embeddings()
+        use_knowledge = config.knowledge_enabled and config.knowledge_top_k > 0
         context = await build_context(
             session,
             message,
@@ -111,7 +113,10 @@ class AIOrchestrator:
             embeddings,
             max_messages=config.max_context_messages,
             memory_top_k=config.memory_top_k,
+            knowledge_top_k=config.knowledge_top_k if use_knowledge else 0,
+            knowledge_max_distance=config.knowledge_max_distance,
         )
+        sources = [hit.source().model_dump(mode="json") for hit in context.knowledge]
         provider = self._require_provider()
         max_chars = max(200, min(config.max_output_tokens * 4, 4000))
         started = time.perf_counter()
@@ -121,6 +126,7 @@ class AIOrchestrator:
                 analysis=analysis,
                 history=context.history,
                 memories=context.memories,
+                knowledge=format_knowledge(context.knowledge),
                 max_chars=max_chars,
             )
         )
@@ -137,6 +143,7 @@ class AIOrchestrator:
                 guardrail_status=GuardrailStatus.BLOCKED,
                 usage=usage,
                 latency_ms=latency_ms,
+                sources=sources,
             )
             logger.info(
                 "ai_guardrail_blocked",
@@ -160,6 +167,7 @@ class AIOrchestrator:
             guardrail_status=GuardrailStatus.PASSED,
             usage=usage,
             latency_ms=latency_ms,
+            sources=sources,
         )
         logger.info(
             "ai_reply_generated",

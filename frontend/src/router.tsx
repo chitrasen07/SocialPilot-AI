@@ -6,6 +6,7 @@ import CustomersPage from "./pages/CustomersPage";
 import DashboardPage from "./pages/DashboardPage";
 import InboxPage from "./pages/InboxPage";
 import IntegrationsPage from "./pages/IntegrationsPage";
+import KnowledgeBasePage from "./pages/KnowledgeBasePage";
 import LandingPage from "./pages/LandingPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import OnboardingPage from "./pages/OnboardingPage";
@@ -41,6 +42,7 @@ export const router = createBrowserRouter([
           { path: "/inbox", element: <InboxPage /> },
           { path: "/customers", element: <CustomersPage /> },
           { path: "/customers/:customerId", element: <CustomerDetailPage /> },
+          { path: "/knowledge-base", element: <KnowledgeBasePage /> },
           { path: "/settings", element: <SettingsPage /> },
         ],
       },

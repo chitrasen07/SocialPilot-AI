@@ -21,6 +21,7 @@ from app.models.instagram import (
     InstagramEvent,
     InstagramEventType,
 )
+from app.models.knowledge import DocumentStatus, KnowledgeChunk, KnowledgeDocument
 from app.models.organization import Organization, OrganizationMember, Role
 from app.models.user import User
 from app.models.webhook import DeliveryStatus, WebhookDelivery
@@ -39,6 +40,9 @@ __all__ = [
     "ConversationStatus",
     "Customer",
     "CustomerMemory",
+    "DocumentStatus",
+    "KnowledgeChunk",
+    "KnowledgeDocument",
     "DeliveryStatus",
     "InstagramAccount",
     "InstagramEvent",

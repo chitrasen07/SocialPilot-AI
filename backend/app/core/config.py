@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Annotated, Literal
 
-from pydantic import PostgresDsn, RedisDsn, SecretStr, field_validator
+from pydantic import PostgresDsn, RedisDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -63,6 +63,17 @@ class Settings(BaseSettings):
     ai_requests_per_minute: int = 30
     ai_max_retries: int = 1
 
+    # Knowledge base. Paths stay on the server. Distance is cosine distance (0 = identical).
+    knowledge_storage_path: str = "storage/knowledge"
+    knowledge_max_file_size_mb: int = 10
+    knowledge_chunk_size: int = 600
+    knowledge_chunk_overlap: int = 80
+    knowledge_embedding_batch_size: int = 16
+    knowledge_retrieval_top_k: int = 5
+    knowledge_retrieval_max_distance: float = 0.5
+    knowledge_max_attempts: int = 3
+    knowledge_max_chunks: int = 200
+
     @field_validator(
         "firebase_project_id",
         "firebase_client_email",
@@ -94,6 +105,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def check_knowledge_chunking(self) -> "Settings":
+        if self.knowledge_chunk_overlap >= self.knowledge_chunk_size:
+            raise ValueError("KNOWLEDGE_CHUNK_OVERLAP must be smaller than KNOWLEDGE_CHUNK_SIZE")
+        if self.knowledge_chunk_overlap < 0 or self.knowledge_chunk_size < 1:
+            raise ValueError("Knowledge chunk settings are invalid.")
+        return self
 
     @property
     def is_production(self) -> bool:
