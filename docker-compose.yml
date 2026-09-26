@@ -1,0 +1,104 @@
+# Local development stack. Production runs the same images behind a managed Postgres/Redis
+# and executes `alembic upgrade head` as a release step, not on every container start.
+name: socialpilot
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-socialpilot}:${POSTGRES_PASSWORD:-socialpilot}@postgres:5432/${POSTGRES_DB:-socialpilot}
+  REDIS_URL: redis://redis:6379/0
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-socialpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-socialpilot}
+      POSTGRES_DB: ${POSTGRES_DB:-socialpilot}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_DEV: "true"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      WATCHFILES_FORCE_POLLING: "true"
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+      args:
+        INSTALL_DEV: "true"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      WATCHFILES_FORCE_POLLING: "true"
+    # watchfiles (installed with uvicorn[standard]) restarts the worker on code changes.
+    command: ["watchfiles", "--filter", "python", "python -m app.workers.worker", "app"]
+    volumes:
+      - ./backend:/app
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+      VITE_USE_POLLING: "true"
+      VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY:-}
+      VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN:-}
+      VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID:-}
+      VITE_FIREBASE_APP_ID: ${VITE_FIREBASE_APP_ID:-}
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:-}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
