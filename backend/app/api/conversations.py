@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import SessionDep, require_role
 from app.models import ConversationStatus, OrganizationMember, Role
+from app.models.channel import ChannelType, ConversationPriority
 from app.schemas.conversations import (
     ConversationDetail,
     ConversationList,
@@ -28,6 +29,8 @@ async def list_conversations(
     membership: Viewer,
     session: SessionDep,
     status: ConversationStatus | None = None,
+    channel: ChannelType | None = None,
+    priority: ConversationPriority | None = None,
     customer_id: uuid.UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
@@ -37,6 +40,8 @@ async def list_conversations(
         membership.organization_id,
         status=status,
         customer_id=customer_id,
+        channel=channel,
+        priority=priority,
         limit=limit,
         offset=offset,
     )

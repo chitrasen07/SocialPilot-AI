@@ -19,6 +19,23 @@ SCRATCH_URL = _dev_url.set(database=SCRATCH_DB).render_as_string(hide_password=F
 PHASE_4_TABLES = {"customers", "conversations", "messages", "customer_memories"}
 PHASE_5_TABLES = {"message_ai_analysis", "ai_reply_drafts", "ai_settings"}
 PHASE_6_TABLES = {"knowledge_documents", "knowledge_chunks"}
+PHASE_8_TABLES = {
+    "customer_intelligence",
+    "memory_suggestions",
+    "customer_segments",
+    "conversation_analytics",
+    "ai_feedback",
+}
+PHASE_9_TABLES = {"automation_rules", "tasks", "notifications"}
+PHASE_10_TABLES = {"conversation_channels", "channel_settings", "channel_analytics"}
+PHASE_11_TABLES = {
+    "conversation_intelligence",
+    "customer_journey",
+    "customer_scores",
+    "customer_recommendations",
+    "ai_response_scores",
+    "learning_metrics",
+}
 
 
 async def _admin(statement: str) -> None:
@@ -67,6 +84,39 @@ def test_upgrade_downgrade_upgrade(scratch_database):
     assert PHASE_4_TABLES <= tables
     assert PHASE_5_TABLES <= tables
     assert PHASE_6_TABLES <= tables
+    assert PHASE_8_TABLES <= tables
+    assert PHASE_9_TABLES <= tables
+    assert PHASE_10_TABLES <= tables
+    assert PHASE_11_TABLES <= tables
+
+    alembic("downgrade", "-1")
+    after_engagement = asyncio.run(_tables())
+    assert not PHASE_11_TABLES & after_engagement
+    assert PHASE_10_TABLES <= after_engagement
+
+    alembic("downgrade", "-1")
+    after_channels = asyncio.run(_tables())
+    assert not PHASE_10_TABLES & after_channels
+    assert PHASE_9_TABLES <= after_channels
+
+    alembic("downgrade", "-1")
+    after_automation = asyncio.run(_tables())
+    assert not PHASE_9_TABLES & after_automation
+    assert PHASE_8_TABLES <= after_automation
+    assert PHASE_6_TABLES <= after_automation
+
+    alembic("downgrade", "-1")
+    after_intelligence = asyncio.run(_tables())
+    assert not PHASE_8_TABLES & after_intelligence
+    assert PHASE_6_TABLES <= after_intelligence
+    assert PHASE_5_TABLES <= after_intelligence
+    assert PHASE_4_TABLES <= after_intelligence
+
+    alembic("downgrade", "-1")
+    after_brand = asyncio.run(_tables())
+    assert PHASE_6_TABLES <= after_brand
+    assert PHASE_5_TABLES <= after_brand
+    assert PHASE_4_TABLES <= after_brand
 
     alembic("downgrade", "-1")
     after_knowledge = asyncio.run(_tables())

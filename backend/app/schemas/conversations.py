@@ -22,7 +22,9 @@ class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    instagram_account_id: uuid.UUID
+    instagram_account_id: uuid.UUID | None = None
+    channel_type: str = "instagram"
+    priority: str = "medium"
     status: ConversationStatus
     last_message_at: datetime | None
     created_at: datetime

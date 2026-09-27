@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../auth/context";
+import { BrandSettings } from "../components/BrandSettings";
 import { Alert, SubmitButton, TextField } from "../components/forms";
 import { useApiQuery } from "../hooks/useApiQuery";
 import { ApiError, api } from "../lib/api";
@@ -64,6 +65,7 @@ export default function SettingsPage() {
       </section>
 
       {organization && canRename && <AiSettingsPanel organizationId={organization.id} />}
+      {organization && canRename && <BrandSettings organizationId={organization.id} />}
 
       <section className="rounded-xl border border-slate-200 bg-white px-6 py-5">
         <h2 className="font-semibold">Your account</h2>

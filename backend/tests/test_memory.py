@@ -24,6 +24,7 @@ def make_customer(db, ig_id: str = "17841400000000001", user_id: str = "user_123
             organization_id=organization.id,
             instagram_account_id=account.id,
             instagram_user_id=user_id,
+            external_user_id=user_id,
         )
         session.add(customer)
         await session.commit()

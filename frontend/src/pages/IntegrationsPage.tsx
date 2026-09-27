@@ -159,6 +159,115 @@ export default function IntegrationsPage() {
           </ul>
         </div>
       </section>
+
+      <ChannelSettings organizationId={organizationId} canManage={canManage} />
     </div>
+  );
+}
+
+interface ChannelRow {
+  id: string;
+  channel_type: string;
+  status: string;
+  provider: string;
+  display_name: string;
+}
+
+const EXTRA_CHANNELS = [
+  { type: "whatsapp", label: "WhatsApp" },
+  { type: "messenger", label: "Messenger" },
+  { type: "email", label: "Email" },
+  { type: "webchat", label: "Website chat" },
+] as const;
+
+function ChannelSettings({ organizationId, canManage }: { organizationId: string; canManage: boolean }) {
+  const [items, setItems] = useState<ChannelRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const body = await api<{ items: ChannelRow[] }>("/api/channels/settings", { organizationId });
+    setItems(body.items);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ items: ChannelRow[] }>("/api/channels/settings", { organizationId })
+      .then((body) => {
+        if (!cancelled) setItems(body.items);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not load channels.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [organizationId]);
+
+  async function connect(channelType: string, label: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const created = await api<ChannelRow & { setup_token?: string }>("/api/channels/connect", {
+        method: "POST",
+        organizationId,
+        body: { channel_type: channelType, display_name: label },
+      });
+      await load();
+      setNotice(
+        channelType === "webchat" && created.setup_token
+          ? `Website chat is connected. Copy this widget token now; it is not shown again: ${created.setup_token}`
+          : `${label} is connected. Inbound messages stay in the inbox until a person sends a reply.`,
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not connect that channel.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const connected = new Set(items.map((item) => item.channel_type));
+
+  return (
+    <section className="mt-6 rounded-xl border border-slate-200 bg-white">
+      <header className="border-b border-slate-200 px-6 py-4">
+        <h2 className="font-semibold">Channels</h2>
+        <p className="text-sm text-slate-600">Status and provider only. Secrets are not listed here.</p>
+      </header>
+      <div className="space-y-4 px-6 py-5">
+        {error && <Alert tone="error">{error}</Alert>}
+        {notice && <Alert tone="success">{notice}</Alert>}
+        {items.length === 0 && <p className="text-sm text-slate-600">No extra channels connected.</p>}
+        <ul className="divide-y divide-slate-100">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center justify-between py-3 text-sm first:pt-0">
+              <div>
+                <p className="font-medium capitalize">{item.display_name || item.channel_type}</p>
+                <p className="text-slate-500">Provider {item.provider}</p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs capitalize text-slate-700">
+                {item.status}
+              </span>
+            </li>
+          ))}
+        </ul>
+        {canManage && (
+          <div className="flex flex-wrap gap-2">
+            {EXTRA_CHANNELS.filter((item) => !connected.has(item.type)).map((item) => (
+              <button
+                key={item.type}
+                disabled={busy}
+                onClick={() => void connect(item.type, item.label)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-60"
+              >
+                Connect {item.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

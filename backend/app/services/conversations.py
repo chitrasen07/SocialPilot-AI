@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.errors import AppError
 from app.models import Conversation, ConversationStatus, Message
+from app.models.channel import ChannelType, ConversationPriority
 
 logger = logging.getLogger("socialpilot.conversations")
 
@@ -36,6 +37,8 @@ async def list_conversations(
     *,
     status: ConversationStatus | None,
     customer_id: uuid.UUID | None,
+    channel: ChannelType | None,
+    priority: ConversationPriority | None,
     limit: int,
     offset: int,
 ) -> tuple[list[ConversationRow], bool]:
@@ -57,6 +60,17 @@ async def list_conversations(
         query = query.where(Conversation.status == status)
     if customer_id is not None:
         query = query.where(Conversation.customer_id == customer_id)
+    if channel is not None:
+        query = query.where(
+            Conversation.id.in_(
+                select(Message.conversation_id).where(
+                    Message.organization_id == organization_id,
+                    Message.channel_type == channel,
+                )
+            )
+        )
+    if priority is not None:
+        query = query.where(Conversation.priority == priority)
     rows = (
         await session.execute(
             query.order_by(Conversation.last_message_at.desc().nulls_last(), Conversation.id.desc())

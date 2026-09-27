@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -17,6 +18,7 @@ from app.models import (
     Message,
     MessageAIAnalysis,
     OrganizationAISettings,
+    RiskLevel,
 )
 
 
@@ -33,6 +35,19 @@ class EffectiveAISettings:
     knowledge_enabled: bool
     knowledge_top_k: int
     knowledge_max_distance: float
+    personality: str
+    brand_voice: str
+    custom_instructions: str
+    preferred_terms: list[str]
+    forbidden_terms: list[str]
+    emoji_policy: str
+    response_length: str
+    language_mode: str
+    require_review_for_refunds: bool
+    require_review_for_payment_issues: bool
+    require_review_for_high_risk: bool
+    require_review_for_unsupported_claims: bool
+    updated_at: datetime | None = None
 
 
 def defaults_from(settings: Settings) -> EffectiveAISettings:
@@ -49,6 +64,18 @@ def defaults_from(settings: Settings) -> EffectiveAISettings:
         knowledge_enabled=True,
         knowledge_top_k=settings.knowledge_retrieval_top_k,
         knowledge_max_distance=settings.knowledge_retrieval_max_distance,
+        personality="friendly",
+        brand_voice="",
+        custom_instructions="",
+        preferred_terms=[],
+        forbidden_terms=[],
+        emoji_policy="minimal",
+        response_length="medium",
+        language_mode="auto",
+        require_review_for_refunds=True,
+        require_review_for_payment_issues=True,
+        require_review_for_high_risk=True,
+        require_review_for_unsupported_claims=True,
     )
 
 
@@ -145,6 +172,10 @@ async def save_draft(
     usage: Usage,
     latency_ms: int,
     sources: list[dict] | None = None,
+    risk_level: str = "low",
+    escalation_required: bool = False,
+    escalation_reason: str | None = None,
+    guardrail_results: dict | None = None,
 ) -> AIReplyDraft:
     draft = AIReplyDraft(
         organization_id=message.organization_id,
@@ -160,6 +191,10 @@ async def save_draft(
         output_tokens=usage.output_tokens,
         latency_ms=latency_ms,
         sources=sources,
+        risk_level=RiskLevel(risk_level),
+        escalation_required=escalation_required,
+        escalation_reason=escalation_reason,
+        guardrail_results=guardrail_results,
     )
     session.add(draft)
     await session.commit()
@@ -189,6 +224,19 @@ async def effective_settings(
         knowledge_enabled=stored.knowledge_enabled,
         knowledge_top_k=stored.knowledge_top_k,
         knowledge_max_distance=stored.knowledge_max_distance,
+        personality=stored.personality.value,
+        brand_voice=stored.brand_voice,
+        custom_instructions=stored.custom_instructions,
+        preferred_terms=list(stored.preferred_terms or []),
+        forbidden_terms=list(stored.forbidden_terms or []),
+        emoji_policy=stored.emoji_policy.value,
+        response_length=stored.response_length.value,
+        language_mode=stored.language_mode.value,
+        require_review_for_refunds=stored.require_review_for_refunds,
+        require_review_for_payment_issues=stored.require_review_for_payment_issues,
+        require_review_for_high_risk=stored.require_review_for_high_risk,
+        require_review_for_unsupported_claims=stored.require_review_for_unsupported_claims,
+        updated_at=stored.updated_at,
     )
 
 
@@ -212,6 +260,18 @@ async def upsert_settings(
         "knowledge_enabled": current.knowledge_enabled,
         "knowledge_top_k": current.knowledge_top_k,
         "knowledge_max_distance": current.knowledge_max_distance,
+        "personality": current.personality,
+        "brand_voice": current.brand_voice,
+        "custom_instructions": current.custom_instructions,
+        "preferred_terms": current.preferred_terms,
+        "forbidden_terms": current.forbidden_terms,
+        "emoji_policy": current.emoji_policy,
+        "response_length": current.response_length,
+        "language_mode": current.language_mode,
+        "require_review_for_refunds": current.require_review_for_refunds,
+        "require_review_for_payment_issues": current.require_review_for_payment_issues,
+        "require_review_for_high_risk": current.require_review_for_high_risk,
+        "require_review_for_unsupported_claims": current.require_review_for_unsupported_claims,
     }
     values.update(updates)
     await session.execute(

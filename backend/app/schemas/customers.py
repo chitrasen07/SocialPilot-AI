@@ -11,8 +11,9 @@ class CustomerOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    instagram_account_id: uuid.UUID
-    instagram_user_id: str
+    instagram_account_id: uuid.UUID | None = None
+    instagram_user_id: str | None = None
+    channel_type: str = "instagram"
     username: str | None
     display_name: str | None
     is_active: bool

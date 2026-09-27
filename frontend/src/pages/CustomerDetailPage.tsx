@@ -5,7 +5,15 @@ import { Alert } from "../components/forms";
 import { useApiQuery } from "../hooks/useApiQuery";
 import { ApiError, api } from "../lib/api";
 import { STATUS_BADGE, canManageInbox, customerName, formatDateTime } from "../lib/inbox";
-import type { CustomerDetail, CustomerMemory, ListResponse, MemoryType } from "../types/api";
+import type {
+  CustomerDetail,
+  CustomerInsights,
+  CustomerIntelligence,
+  CustomerMemory,
+  ListResponse,
+  MemorySuggestion,
+  MemoryType,
+} from "../types/api";
 
 const MEMORY_TYPES: { value: MemoryType; label: string }[] = [
   { value: "preference", label: "Preference" },
@@ -21,6 +29,18 @@ export default function CustomerDetailPage() {
   const canManage = canManageInbox(organization?.role);
   const customer = useApiQuery<CustomerDetail>(`/api/customers/${customerId}`, organizationId);
   const memories = useApiQuery<ListResponse<CustomerMemory>>(`/api/customers/${customerId}/memories`, organizationId);
+  const intelligence = useApiQuery<CustomerIntelligence>(
+    customerId ? `/api/customers/${customerId}/intelligence` : null,
+    organizationId,
+  );
+  const insights = useApiQuery<CustomerInsights>(
+    customerId ? `/api/intelligence/customers/${customerId}` : null,
+    organizationId,
+  );
+  const suggestions = useApiQuery<ListResponse<MemorySuggestion>>(
+    customerId ? `/api/customers/${customerId}/memory-suggestions` : null,
+    organizationId,
+  );
 
   const [memoryType, setMemoryType] = useState<MemoryType>("preference");
   const [content, setContent] = useState("");
@@ -42,6 +62,21 @@ export default function CustomerDetailPage() {
       memories.reload();
     } catch (err) {
       setNotice(err instanceof ApiError ? err.message : "Could not save the memory.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reviewSuggestion(id: string, action: "approve" | "reject") {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await api(`/api/memory-suggestions/${id}/${action}`, { method: "POST", organizationId });
+      suggestions.reload();
+      memories.reload();
+      intelligence.reload();
+    } catch (err) {
+      setNotice(err instanceof ApiError ? err.message : "Could not review the suggestion.");
     } finally {
       setBusy(false);
     }
@@ -97,6 +132,87 @@ export default function CustomerDetailPage() {
           <dt className="text-slate-500">First seen</dt>
           <dd>{formatDateTime(profile.created_at)}</dd>
         </dl>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white px-6 py-5">
+        <h2 className="font-semibold">AI insights</h2>
+        <p className="text-sm text-slate-600">From conversation messages and approved memories.</p>
+        {insights.data && (
+          <dl className="mt-3 grid grid-cols-[10rem_1fr] gap-y-1.5 text-sm">
+            <dt className="text-slate-500">Lifecycle stage</dt>
+            <dd className="capitalize">{insights.data.lifecycle_stage.replaceAll("_", " ")}</dd>
+            <dt className="text-slate-500">Lead score</dt>
+            <dd>
+              {insights.data.lead_score}
+              {insights.data.score_reason ? ` · ${insights.data.score_reason}` : ""}
+            </dd>
+            <dt className="text-slate-500">Buying probability</dt>
+            <dd>{Math.round(insights.data.buying_probability * 100)}%</dd>
+            <dt className="text-slate-500">Churn risk</dt>
+            <dd>{Math.round(insights.data.churn_risk * 100)}%</dd>
+            <dt className="text-slate-500">Recommended actions</dt>
+            <dd>{insights.data.recommended_actions.join(" ") || "—"}</dd>
+            <dt className="text-slate-500">Products</dt>
+            <dd>
+              {insights.data.recommendations.map((item) => item.product_name).join(", ") || "—"}
+            </dd>
+          </dl>
+        )}
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white px-6 py-5">
+        <h2 className="font-semibold">What we know</h2>
+        <p className="text-sm text-slate-600">Built from messages, approved memories, and message analysis.</p>
+        {intelligence.data && (
+          <dl className="mt-3 grid grid-cols-[10rem_1fr] gap-y-1.5 text-sm">
+            <dt className="text-slate-500">Language</dt>
+            <dd className="capitalize">{intelligence.data.language_preference}</dd>
+            <dt className="text-slate-500">Style</dt>
+            <dd className="capitalize">{intelligence.data.communication_style}</dd>
+            <dt className="text-slate-500">Buying intent</dt>
+            <dd className="capitalize">{intelligence.data.buying_intent}</dd>
+            <dt className="text-slate-500">Sentiment</dt>
+            <dd className="capitalize">{intelligence.data.sentiment_trend}</dd>
+            <dt className="text-slate-500">Products</dt>
+            <dd>{intelligence.data.frequent_products.join(", ") || "—"}</dd>
+            <dt className="text-slate-500">Preferences</dt>
+            <dd>{intelligence.data.preferences.join("; ") || "—"}</dd>
+            <dt className="text-slate-500">Segments</dt>
+            <dd>{intelligence.data.segments.map((item) => item.segment.replaceAll("_", " ")).join(", ") || "—"}</dd>
+          </dl>
+        )}
+        {suggestions.data && suggestions.data.items.filter((item) => item.status === "pending").length > 0 && (
+          <ul className="mt-4 space-y-2">
+            {suggestions.data.items
+              .filter((item) => item.status === "pending")
+              .map((item) => (
+                <li key={item.id} className="rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">{item.category}</p>
+                  <p>{item.content}</p>
+                  {canManage && (
+                    <div className="mt-2 flex gap-3">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void reviewSuggestion(item.id, "approve")}
+                        className="text-brand-600 hover:underline disabled:opacity-60"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void reviewSuggestion(item.id, "reject")}
+                        className="text-red-600 hover:underline disabled:opacity-60"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white px-6 py-5">

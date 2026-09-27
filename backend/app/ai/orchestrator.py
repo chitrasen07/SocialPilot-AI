@@ -9,14 +9,17 @@ from app.ai.classifier import classify_locally
 from app.ai.context import build_context
 from app.ai.embeddings import EmbeddingProvider
 from app.ai.errors import ai_disabled, ai_guardrail_blocked, ai_not_configured, ai_provider_failed
-from app.ai.guardrails import check_reply
+from app.ai.guardrails import evaluate_reply
+from app.ai.policies import decide_review
 from app.ai.prompts import analysis_prompt, reply_prompt
 from app.ai.providers.base import AIProvider
+from app.ai.risk import assess_risk
 from app.ai.schemas import MessageAnalysis, Usage
 from app.core.config import Settings
 from app.knowledge.citations import format_knowledge
 from app.models import AIReplyDraft, DraftStatus, GuardrailStatus, MessageAIAnalysis
 from app.services import ai_data
+from app.services.customer_intelligence import refresh_for_prompt
 
 logger = logging.getLogger("socialpilot.ai")
 
@@ -41,6 +44,7 @@ class AIOrchestrator:
         message = await ai_data.get_message(session, organization_id, message_id)
         existing = await ai_data.get_analysis(session, organization_id, message.id)
         if existing is not None:
+            await refresh_for_prompt(session, organization_id, message, _from_row(existing))
             return existing
 
         logger.info(
@@ -95,6 +99,7 @@ class AIOrchestrator:
                 }
             },
         )
+        await refresh_for_prompt(session, organization_id, message, analysis)
         return stored
 
     async def generate_reply(
@@ -104,6 +109,7 @@ class AIOrchestrator:
         analysis_row = await self.analyze(session, organization_id, message_id)
         message = await ai_data.get_message(session, organization_id, message_id)
         analysis = _from_row(analysis_row)
+        intelligence = await refresh_for_prompt(session, organization_id, message, analysis)
         embeddings = self._require_embeddings()
         use_knowledge = config.knowledge_enabled and config.knowledge_top_k > 0
         context = await build_context(
@@ -117,6 +123,7 @@ class AIOrchestrator:
             knowledge_max_distance=config.knowledge_max_distance,
         )
         sources = [hit.source().model_dump(mode="json") for hit in context.knowledge]
+        knowledge_text = format_knowledge(context.knowledge)
         provider = self._require_provider()
         max_chars = max(200, min(config.max_output_tokens * 4, 4000))
         started = time.perf_counter()
@@ -126,13 +133,37 @@ class AIOrchestrator:
                 analysis=analysis,
                 history=context.history,
                 memories=context.memories,
-                knowledge=format_knowledge(context.knowledge),
+                knowledge=knowledge_text,
                 max_chars=max_chars,
+                settings=config,
+                intelligence=intelligence,
             )
         )
         latency_ms = int((time.perf_counter() - started) * 1000)
-        verdict = check_reply(reply, max_chars=max_chars)
-        if verdict.status != "passed":
+        report = evaluate_reply(
+            reply,
+            max_chars=max_chars,
+            forbidden_terms=config.forbidden_terms,
+            knowledge_text=knowledge_text,
+            emoji_policy=config.emoji_policy,
+            personality=config.personality,
+            customer_text=message.content or "",
+        )
+        risk = assess_risk(
+            message.content or "",
+            emotion=analysis.emotion.value,
+            sentiment=analysis.sentiment.value,
+        )
+        status_name, escalate, reason = decide_review(
+            blocked=report.blocked,
+            flag_codes=[item.code for item in report.flags],
+            risk_level=risk.level,
+            risk_codes=risk.codes,
+            risk_reason=risk.reason,
+            settings=config,
+        )
+        results = report.as_dict() | {"reason_codes": risk.codes}
+        if report.blocked:
             await ai_data.save_draft(
                 session,
                 message=message,
@@ -144,6 +175,10 @@ class AIOrchestrator:
                 usage=usage,
                 latency_ms=latency_ms,
                 sources=sources,
+                risk_level=risk.level,
+                escalation_required=escalate,
+                escalation_reason=reason,
+                guardrail_results=results,
             )
             logger.info(
                 "ai_guardrail_blocked",
@@ -151,24 +186,40 @@ class AIOrchestrator:
                     "fields": {
                         "organization_id": str(organization_id),
                         "message_id": str(message.id),
-                        "reason": verdict.reason,
+                        "reason": report.reason,
                     }
                 },
             )
             raise ai_guardrail_blocked()
 
+        from app.intelligence.optimizer import optimize_reply
+        from app.services.intelligence_engine import store_response_score
+
+        optimized = optimize_reply(
+            message=message.content or "",
+            reply=reply,
+            personality=config.personality,
+            history=context.history,
+            knowledge=knowledge_text,
+            emoji_policy=config.emoji_policy,
+        )
         draft = await ai_data.save_draft(
             session,
             message=message,
-            reply_text=reply,
+            reply_text=optimized.text,
             provider=provider.name,
             model=provider.model,
-            status=DraftStatus.GENERATED,
+            status=DraftStatus(status_name),
             guardrail_status=GuardrailStatus.PASSED,
             usage=usage,
             latency_ms=latency_ms,
             sources=sources,
+            risk_level=risk.level,
+            escalation_required=escalate,
+            escalation_reason=reason,
+            guardrail_results=results,
         )
+        await store_response_score(session, draft, optimized)
         logger.info(
             "ai_reply_generated",
             extra={

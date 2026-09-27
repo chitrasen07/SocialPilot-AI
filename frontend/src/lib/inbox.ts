@@ -32,3 +32,7 @@ export const STATUS_BADGE: Record<ConversationStatus, string> = {
 export function canManageInbox(role: Role | undefined) {
   return role === "owner" || role === "admin" || role === "agent";
 }
+
+export function canManageAutomation(role: Role | undefined) {
+  return role === "owner" || role === "admin";
+}

@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, Timestamps, UUIDPrimaryKey, string_enum
+from app.models.channel import ChannelType, ConversationPriority
 from app.models.customer import Customer
 
 
@@ -61,8 +62,18 @@ class Conversation(UUIDPrimaryKey, Timestamps, Base):
         ForeignKey("organizations.id", ondelete="CASCADE")
     )
     customer_id: Mapped[uuid.UUID]
-    instagram_account_id: Mapped[uuid.UUID] = mapped_column(
+    instagram_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("instagram_accounts.id", ondelete="CASCADE"), index=True
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversation_channels.id", ondelete="SET NULL")
+    )
+    channel_type: Mapped[ChannelType] = mapped_column(
+        string_enum(ChannelType, "conversation_channel", 16), default=ChannelType.INSTAGRAM
+    )
+    priority: Mapped[ConversationPriority] = mapped_column(
+        string_enum(ConversationPriority, "conversation_priority"),
+        default=ConversationPriority.MEDIUM,
     )
     status: Mapped[ConversationStatus] = mapped_column(
         string_enum(ConversationStatus, "conversation_status"), default=ConversationStatus.OPEN
@@ -107,9 +118,17 @@ class Message(UUIDPrimaryKey, Timestamps, Base):
     customer_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("customers.id", ondelete="CASCADE"), index=True
     )
-    instagram_account_id: Mapped[uuid.UUID] = mapped_column(
+    instagram_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("instagram_accounts.id", ondelete="CASCADE"), index=True
     )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversation_channels.id", ondelete="SET NULL")
+    )
+    channel_type: Mapped[ChannelType] = mapped_column(
+        string_enum(ChannelType, "message_channel", 16), default=ChannelType.INSTAGRAM
+    )
+    sender_identifier: Mapped[str | None] = mapped_column(String(255))
+    receiver_identifier: Mapped[str | None] = mapped_column(String(255))
     external_message_id: Mapped[str | None] = mapped_column(String(255))
     sender_type: Mapped[SenderType] = mapped_column(string_enum(SenderType, "sender_type"))
     content: Mapped[str | None] = mapped_column(Text)

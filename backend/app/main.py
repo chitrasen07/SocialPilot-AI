@@ -10,13 +10,20 @@ from app.ai.factory import build_ai
 from app.ai.orchestrator import AIOrchestrator
 from app.api import (
     ai,
+    analytics,
     auth,
+    automation,
+    channels,
     conversations,
     customers,
     health,
     instagram,
+    intelligence,
     knowledge,
+    notifications,
     organizations,
+    suggestions,
+    tasks,
     webhooks,
 )
 from app.api.deps import ORGANIZATION_HEADER
@@ -88,6 +95,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(instagram.router)
     app.include_router(webhooks.router)
     app.include_router(customers.router)
+    app.include_router(suggestions.router)
+    app.include_router(analytics.router)
+    app.include_router(intelligence.router)
+    app.include_router(channels.router)
+    app.include_router(automation.router)
+    app.include_router(tasks.router)
+    app.include_router(notifications.router)
     app.include_router(conversations.router)
     app.include_router(knowledge.router)
     app.include_router(ai.router)

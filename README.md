@@ -300,6 +300,161 @@ threshold under Settings. API keys and the storage path are not editable there.
 
 Phase 6 tests do **not** require Gemini or Meta credentials.
 
+## Brand control and human review
+
+Phase 7 adds organization brand settings and a draft review workflow on top of the existing
+AI provider, memory, and knowledge base. A draft is still not sent to Instagram.
+
+```text
+Message → analysis → memory + conversation + knowledge
+        → brand personality and reply policy → AI provider
+        → guardrails → risk → draft, review, edit, approve, or reject
+```
+
+Admins set personality, brand voice, custom instructions, preferred and forbidden words, emoji
+policy, response length, and language mode under Settings. `auto` follows the customer's
+language. Customer messages and uploaded documents stay untrusted: they cannot override safety
+or brand rules.
+
+Guardrails are deterministic. They block secret disclosure, system-prompt disclosure, and
+claims that a refund, payment, order, or delivery already happened. Forbidden words, unsupported
+prices, and emoji-policy misses keep the draft and mark it for review instead of silently
+rewriting it. Risk is `low`, `medium`, or `high`. High means a person should look, not that the
+customer is correct. Refunds, payment disputes, legal complaints, and safety concerns are
+escalated when those review settings are on. They default to on.
+
+Draft status stays `generated` for an ordinary low-risk draft, so existing clients keep working.
+Other states are `review_required`, `edited`, `approved`, `rejected`, and `expired`. A rejected
+draft cannot be approved until someone edits it into a version that passes guardrails. Approving
+records who reviewed it and when. `sent` stays false.
+
+| Endpoint | Who |
+| --- | --- |
+| `GET /api/ai/review-queue` | viewer+ |
+| `POST /api/ai/drafts/{id}/approve` | agent+ |
+| `POST /api/ai/drafts/{id}/edit` | agent+ |
+| `POST /api/ai/drafts/{id}/reject` | agent+ |
+| `POST /api/ai/drafts/{id}/escalate` | agent+ |
+
+The inbox shows risk, status, sources, and guardrail flags. The review queue is `/review`.
+Brand settings are stored on `ai_settings`. There is no new API key and no new environment
+variable for this phase.
+
+AI drafts are not automatically sent.
+
+## Customer intelligence and analytics
+
+Phase 8 adds a profile above each customer, memory suggestions, segments, daily analytics,
+and draft feedback. A draft is still not sent to Instagram.
+
+```text
+Message → analysis → memory suggestion (pending)
+        → customer profile and segments
+        → reply prompt includes the profile as untrusted context
+        → human approves a suggestion before it becomes memory
+        → approve, edit, or reject stores feedback
+```
+
+Profiles use conversation messages, approved memories, and stored analysis. They do not store
+birthdays, age, religion, health, addresses, or contact details. Suggestions stay pending until
+an agent approves or rejects them. Approving writes a normal customer memory. Segments describe
+shopping behavior, not demographics.
+
+Reply context order stays fixed: system instructions, brand settings, business knowledge,
+customer memory, customer intelligence, recent conversation, then the current message.
+Customer text never enters the system instruction block. Knowledge stays labeled
+`BUSINESS KNOWLEDGE — UNTRUSTED REFERENCE DATA`.
+
+| Endpoint | Who |
+| --- | --- |
+| `GET /api/customers/{id}/intelligence` | viewer+ |
+| `GET /api/customers/{id}/memory-suggestions` | viewer+ |
+| `POST /api/memory-suggestions/{id}/approve` | agent+ |
+| `POST /api/memory-suggestions/{id}/reject` | agent+ |
+| `GET /api/analytics/overview` | viewer+ |
+| `GET /api/analytics/customers` | viewer+ |
+| `GET /api/analytics/ai-performance` | viewer+ |
+| `POST /api/ai/drafts/{id}/feedback` | agent+ |
+
+The analytics page is `/analytics`. Feedback is stored for a later training step. This phase
+does not fine-tune a model and does not call Instagram.
+
+## Automation
+
+Phase 9 adds organization rules that prepare drafts, open tasks, or notify teammates.
+A rule never sends an Instagram message.
+
+```text
+Customer event → matching enabled rules → draft, task, or notification
+```
+
+Triggers are message received, sentiment, intent, customer created, and segment changed.
+Conditions are exact labels such as `pricing_question`, `negative`, or `high_intent_buyer`.
+`generate_draft` calls the existing AI pipeline: brand settings, knowledge, memory,
+customer intelligence, and guardrails. Disabled rules do nothing.
+
+| Endpoint | Who |
+| --- | --- |
+| `GET /api/automation/rules` | viewer+ |
+| `POST /api/automation/rules` | admin+ |
+| `PATCH /api/automation/rules/{id}` | admin+ |
+| `DELETE /api/automation/rules/{id}` | admin+ |
+| `GET /api/tasks` | viewer+ |
+| `POST /api/tasks` | agent+ |
+| `PATCH /api/tasks/{id}` | agent+, assigned task or admin |
+| `GET /api/notifications` | viewer+, own notifications |
+| `POST /api/notifications/{id}/read` | viewer+, own notification |
+
+The builder is `/automation`. The task list is `/tasks`. The notification bell shows the unread count.
+
+AI drafts are not automatically sent.
+
+## Channels
+
+Phase 10 adds WhatsApp, Messenger, email, and a website chat widget beside Instagram.
+Every channel writes the same customer, conversation, and message rows and uses the existing
+AI pipeline. A draft is prepared for review. Nothing is sent to the customer.
+
+```text
+Inbound message → channel provider → normalizer → conversation → analysis → draft
+```
+
+Instagram continues to arrive on `POST /api/webhooks/instagram`. Other channels use a signed
+webhook on `POST /api/channels/webhook/{channel_id}`. The website widget uses
+`POST /api/channels/webchat/{channel_id}/messages` and shows the visitor their own messages.
+
+| Endpoint | Who |
+| --- | --- |
+| `GET /api/channels` | viewer+ |
+| `GET /api/channels/settings` | viewer+ |
+| `POST /api/channels/connect` | admin+ |
+| `PATCH /api/channels/{id}` | admin+ |
+| `POST /api/channels/webhook/{channel_id}` | signed webhook |
+| `GET /api/analytics/channels` | viewer+ |
+
+The inbox is `/inbox`, with channel, status, and priority filters. Channel status is `/integrations`.
+The public chat page is `/widget`. Webhook secrets are encrypted and are not returned by the
+channel list.
+
+AI drafts are not automatically sent.
+
+## Engagement intelligence
+
+Phase 11 reads messages, approved memories, and knowledge documents. It records conversation
+stage, lifecycle, lead score, and product names that already appear in the knowledge base.
+Draft scoring is deterministic. Review feedback is counted. No model is fine-tuned, and no
+message is sent.
+
+| Endpoint | Who |
+| --- | --- |
+| `GET /api/intelligence/dashboard` | viewer+ |
+| `GET /api/intelligence/customers/{id}` | viewer+ |
+
+The dashboard is `/intelligence`. Customer profiles show lifecycle stage, lead score, buying
+probability, churn risk, and the recommended next review action.
+
+AI drafts are not automatically sent.
+
 ## Secrets
 
 All secrets live in environment variables on the backend. `.env` is gitignored. Firebase Admin

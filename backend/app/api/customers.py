@@ -1,7 +1,9 @@
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.api.deps import SessionDep, require_role
 from app.models import OrganizationMember, Role
@@ -15,6 +17,7 @@ from app.schemas.customers import (
     MemoryList,
     MemoryOut,
 )
+from app.services import customer_intelligence
 from app.services import customers as service
 from app.services import memory as memory_service
 
@@ -89,6 +92,93 @@ async def create_memory(
         metadata=body.metadata,
     )
     return MemoryOut.from_model(memory)
+
+
+class SegmentOut(BaseModel):
+    segment: str
+    confidence: float
+
+
+class IntelligenceOut(BaseModel):
+    summary: str
+    preferences: list[str]
+    interests: list[str]
+    frequent_products: list[str]
+    buying_intent: str
+    communication_style: str
+    language_preference: str
+    previous_issues: list[str]
+    sentiment_trend: str
+    segments: list[SegmentOut]
+    pending_suggestions: int
+
+
+class SuggestionOut(BaseModel):
+    id: uuid.UUID
+    customer_id: uuid.UUID
+    source_message_id: uuid.UUID | None
+    content: str
+    category: str
+    status: str
+    created_at: datetime
+    reviewed_at: datetime | None
+    reviewed_by: uuid.UUID | None
+
+
+class SuggestionList(BaseModel):
+    items: list[SuggestionOut]
+
+
+def _suggestion_out(row) -> SuggestionOut:
+    return SuggestionOut(
+        id=row.id,
+        customer_id=row.customer_id,
+        source_message_id=row.source_message_id,
+        content=row.content,
+        category=row.category.value,
+        status=row.status.value,
+        created_at=row.created_at,
+        reviewed_at=row.reviewed_at,
+        reviewed_by=row.reviewed_by,
+    )
+
+
+@router.get("/{customer_id}/intelligence")
+async def get_intelligence(
+    customer_id: uuid.UUID, membership: Viewer, session: SessionDep
+) -> IntelligenceOut:
+    profile = await customer_intelligence.update_customer_profile(
+        session, membership.organization_id, customer_id
+    )
+    insights = await customer_intelligence.get_customer_insights(
+        session, membership.organization_id, customer_id
+    )
+    return IntelligenceOut(
+        summary=profile.summary,
+        preferences=list(profile.preferences),
+        interests=list(profile.interests),
+        frequent_products=list(profile.frequent_products),
+        buying_intent=profile.buying_intent,
+        communication_style=profile.communication_style,
+        language_preference=profile.language_preference,
+        previous_issues=list(profile.previous_issues),
+        sentiment_trend=profile.sentiment_trend,
+        segments=[
+            SegmentOut(segment=item.segment.value, confidence=item.confidence)
+            for item in insights.segments
+        ],
+        pending_suggestions=insights.pending_suggestions,
+    )
+
+
+@router.get("/{customer_id}/memory-suggestions")
+async def get_memory_suggestions(
+    customer_id: uuid.UUID, membership: Viewer, session: SessionDep
+) -> SuggestionList:
+    rows = await customer_intelligence.list_suggestions(
+        session, membership.organization_id, customer_id
+    )
+    return SuggestionList(items=[_suggestion_out(row) for row in rows])
 
 
 @router.delete("/{customer_id}/memories/{memory_id}", status_code=204)

@@ -11,11 +11,13 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, Timestamps, UUIDPrimaryKey, string_enum
+from app.models.channel import ChannelType
 
 # Must match the embedding model configured in Phase 5; changing it requires a migration.
 EMBEDDING_DIMENSIONS = 768
@@ -35,6 +37,14 @@ class Customer(UUIDPrimaryKey, Timestamps, Base):
             "instagram_user_id",
             name="uq_customers_org_account_user",
         ),
+        Index(
+            "uq_customers_org_channel_external",
+            "organization_id",
+            "channel_type",
+            "external_user_id",
+            unique=True,
+            postgresql_where=text("instagram_account_id IS NULL"),
+        ),
         # Target for composite foreign keys that pin child rows to the same organization.
         UniqueConstraint("id", "organization_id"),
         Index("ix_customers_organization_id_updated_at", "organization_id", "updated_at"),
@@ -43,10 +53,14 @@ class Customer(UUIDPrimaryKey, Timestamps, Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="CASCADE")
     )
-    instagram_account_id: Mapped[uuid.UUID] = mapped_column(
+    instagram_account_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("instagram_accounts.id", ondelete="CASCADE"), index=True
     )
-    instagram_user_id: Mapped[str] = mapped_column(String(64))
+    instagram_user_id: Mapped[str | None] = mapped_column(String(64))
+    channel_type: Mapped[ChannelType] = mapped_column(
+        string_enum(ChannelType, "customer_channel", 16), default=ChannelType.INSTAGRAM
+    )
+    external_user_id: Mapped[str] = mapped_column(String(255))
     username: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str | None] = mapped_column(String(200))
     profile_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))

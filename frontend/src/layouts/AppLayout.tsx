@@ -1,12 +1,18 @@
 import { NavLink, Outlet } from "react-router";
 import { useAuth } from "../auth/context";
 import Logo from "../components/Logo";
+import NotificationBell from "../components/NotificationBell";
 
 const navigation = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/inbox", label: "Inbox" },
   { to: "/customers", label: "Customers" },
   { to: "/knowledge-base", label: "Knowledge Base" },
+  { to: "/review", label: "Review" },
+  { to: "/analytics", label: "Analytics" },
+  { to: "/intelligence", label: "Intelligence" },
+  { to: "/automation", label: "Automation" },
+  { to: "/tasks", label: "Tasks" },
   { to: "/integrations", label: "Integrations" },
   { to: "/settings", label: "Settings" },
 ];
@@ -47,6 +53,9 @@ export default function AppLayout() {
         </div>
       </aside>
       <main className="min-w-0 flex-1 px-8 py-8">
+        <div className="mb-6 flex justify-end">
+          <NotificationBell />
+        </div>
         <Outlet />
       </main>
     </div>

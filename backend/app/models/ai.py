@@ -1,8 +1,9 @@
 import enum
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,15 +16,54 @@ class AnalysisStatus(enum.StrEnum):
 
 
 class DraftStatus(enum.StrEnum):
+    # `generated` is the normal draft state from Phase 5. New workflow states are added beside it.
     GENERATED = "generated"
+    REVIEW_REQUIRED = "review_required"
     APPROVED = "approved"
     REJECTED = "rejected"
+    EDITED = "edited"
     EXPIRED = "expired"
 
 
 class GuardrailStatus(enum.StrEnum):
     PASSED = "passed"
     BLOCKED = "blocked"
+
+
+class RiskLevel(enum.StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class Personality(enum.StrEnum):
+    PROFESSIONAL = "professional"
+    FRIENDLY = "friendly"
+    CASUAL = "casual"
+    PREMIUM = "premium"
+    PLAYFUL = "playful"
+    CUSTOM = "custom"
+
+
+class EmojiPolicy(enum.StrEnum):
+    NONE = "none"
+    MINIMAL = "minimal"
+    MODERATE = "moderate"
+    MATCH_CUSTOMER = "match_customer"
+
+
+class ResponseLength(enum.StrEnum):
+    SHORT = "short"
+    MEDIUM = "medium"
+    LONG = "long"
+
+
+class LanguageMode(enum.StrEnum):
+    AUTO = "auto"
+    ENGLISH = "english"
+    HINDI = "hindi"
+    HINGLISH = "hinglish"
+    TELUGU = "telugu"
 
 
 class MessageAIAnalysis(UUIDPrimaryKey, Timestamps, Base):
@@ -67,6 +107,7 @@ class AIReplyDraft(UUIDPrimaryKey, Timestamps, Base):
         Index("ix_ai_reply_drafts_organization_id", "organization_id"),
         Index("ix_ai_reply_drafts_message_id", "message_id"),
         Index("ix_ai_reply_drafts_conversation_id", "conversation_id"),
+        Index("ix_ai_reply_drafts_organization_id_status", "organization_id", "status"),
     )
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
@@ -88,6 +129,18 @@ class AIReplyDraft(UUIDPrimaryKey, Timestamps, Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     sources: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
+    risk_level: Mapped[RiskLevel] = mapped_column(
+        string_enum(RiskLevel, "draft_risk_level"), default=RiskLevel.LOW
+    )
+    escalation_required: Mapped[bool] = mapped_column(default=False)
+    escalation_reason: Mapped[str | None] = mapped_column(Text)
+    guardrail_results: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    edited_text: Mapped[str | None] = mapped_column(Text)
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(Text)
 
 
 class OrganizationAISettings(UUIDPrimaryKey, Timestamps, Base):
@@ -110,3 +163,23 @@ class OrganizationAISettings(UUIDPrimaryKey, Timestamps, Base):
     knowledge_enabled: Mapped[bool] = mapped_column(default=True)
     knowledge_top_k: Mapped[int] = mapped_column(Integer, default=5)
     knowledge_max_distance: Mapped[float] = mapped_column(Float, default=0.5)
+    personality: Mapped[Personality] = mapped_column(
+        string_enum(Personality, "ai_personality"), default=Personality.FRIENDLY
+    )
+    brand_voice: Mapped[str] = mapped_column(Text, default="")
+    custom_instructions: Mapped[str] = mapped_column(Text, default="")
+    preferred_terms: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    forbidden_terms: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    emoji_policy: Mapped[EmojiPolicy] = mapped_column(
+        string_enum(EmojiPolicy, "ai_emoji_policy"), default=EmojiPolicy.MINIMAL
+    )
+    response_length: Mapped[ResponseLength] = mapped_column(
+        string_enum(ResponseLength, "ai_response_length"), default=ResponseLength.MEDIUM
+    )
+    language_mode: Mapped[LanguageMode] = mapped_column(
+        string_enum(LanguageMode, "ai_language_mode"), default=LanguageMode.AUTO
+    )
+    require_review_for_refunds: Mapped[bool] = mapped_column(default=True)
+    require_review_for_payment_issues: Mapped[bool] = mapped_column(default=True)
+    require_review_for_high_risk: Mapped[bool] = mapped_column(default=True)
+    require_review_for_unsupported_claims: Mapped[bool] = mapped_column(default=True)

@@ -29,6 +29,22 @@ def ai_guardrail_blocked() -> AppError:
     )
 
 
+def draft_not_found() -> AppError:
+    return AppError("DRAFT_NOT_FOUND", "Draft not found.", 404)
+
+
+def draft_state() -> AppError:
+    return AppError("DRAFT_STATE", "This draft can't be changed that way.", 409)
+
+
+def draft_not_approvable() -> AppError:
+    return AppError(
+        "DRAFT_NOT_APPROVABLE",
+        "This draft still needs changes before it can be approved.",
+        422,
+    )
+
+
 def ai_rate_limited() -> AppError:
     return AppError(
         "AI_RATE_LIMITED",

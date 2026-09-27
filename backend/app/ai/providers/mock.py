@@ -52,18 +52,40 @@ def _between(prompt: str) -> str:
 
 
 def _reply(text: str, prompt: str = "") -> str:
-    if _INJECTION.search(text):
+    if _INJECTION.search(text) or re.search(
+        r"forget your brand|ignore your rules|ignore all", text, re.I
+    ):
         return (
             "I can help with this conversation. I can't share internal instructions "
             "or change payments, refunds, or orders."
         )
     analysis = classify_locally(text)
     language = analysis.language.value if analysis else "english"
+    forced = _directive(prompt, "language_mode")
+    if forced in {"english", "hindi", "hinglish", "telugu"}:
+        language = forced
+    personality = _directive(prompt, "personality") or "friendly"
+    formal = personality in {"professional", "premium"}
     knowledge = _knowledge(prompt)
-    grounded = _grounded(text, knowledge, language)
+    grounded = _grounded(text, knowledge, language, formal)
     if grounded is not None:
-        return grounded
-    return _unknown(language)
+        reply = grounded
+    else:
+        reply = _unknown(language, formal)
+    emoji_policy = _directive(prompt, "emoji_policy") or "minimal"
+    if emoji_policy == "match_customer" and not formal and _EMOJI.search(text):
+        reply = f"{reply} 🙂"
+    return reply
+
+
+def _directive(prompt: str, key: str) -> str:
+    match = re.search(r"REPLY POLICY:\n<<<\n(.*?)\n>>>", prompt, re.S)
+    body = match.group(1) if match else ""
+    found = re.search(rf"^{key}=(\S+)", body, re.M)
+    return found.group(1) if found else ""
+
+
+_EMOJI = re.compile(r"[\U0001F300-\U0001FAFF]")
 
 
 def _knowledge(prompt: str) -> str:
@@ -80,7 +102,7 @@ def _knowledge(prompt: str) -> str:
     return "\n".join(kept).strip()
 
 
-def _grounded(text: str, knowledge: str, language: str) -> str | None:
+def _grounded(text: str, knowledge: str, language: str, formal: bool = False) -> str | None:
     if not knowledge:
         return None
     amounts = list(dict.fromkeys(re.findall(r"₹\s?[\d,]+", knowledge)))
@@ -92,7 +114,7 @@ def _grounded(text: str, knowledge: str, language: str) -> str | None:
         if len(amounts) > 1:
             return _unclear_price(language)
         if len(amounts) == 1:
-            return _price(language, amounts[0].replace(" ", ""))
+            return _price(language, amounts[0].replace(" ", ""), formal)
     if asks_stock and not re.search(r"\bin stock\b|\bavailable\b", knowledge, re.I):
         return _no_stock(language)
     if asks_return and days:
@@ -104,8 +126,10 @@ def _grounded(text: str, knowledge: str, language: str) -> str | None:
     return None
 
 
-def _price(language: str, amount: str) -> str:
+def _price(language: str, amount: str, formal: bool = False) -> str:
     if language == "hinglish":
+        if formal:
+            return f"Listed price {amount} hai."
         return f"Bhai, listed price {amount} hai."
     if language == "hindi":
         return f"सूची में कीमत {amount} है।"
@@ -134,8 +158,12 @@ def _unclear_price(language: str) -> str:
     return "The business documents list more than one price, so I can't confirm which applies."
 
 
-def _unknown(language: str) -> str:
+def _unknown(language: str, formal: bool = False) -> str:
     if language == "hinglish":
+        if formal:
+            return (
+                "Mere paas verified stock ya price detail nahi hai, isliye confirm nahi kar sakta."
+            )
         return (
             "Haan bhai, mere paas verified stock ya price detail nahi hai, "
             "isliye confirm nahi kar sakta."

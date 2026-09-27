@@ -28,15 +28,20 @@ const FILTERS: { value: ConversationStatus | "all"; label: string }[] = [
   { value: "closed", label: "Closed" },
 ];
 
+const CHANNELS = ["all", "instagram", "whatsapp", "messenger", "email", "webchat"] as const;
+const PRIORITIES = ["all", "low", "medium", "high"] as const;
+
 export default function InboxPage() {
   const { organization } = useAuth();
   const organizationId = organization?.id;
   const [params, setParams] = useSearchParams();
   const selectedId = params.get("c");
   const [filter, setFilter] = useState<ConversationStatus | "all">("all");
+  const [channel, setChannel] = useState<(typeof CHANNELS)[number]>("all");
+  const [priority, setPriority] = useState<(typeof PRIORITIES)[number]>("all");
   const [offset, setOffset] = useState(0);
 
-  const listPath = `/api/conversations?limit=${PAGE_SIZE}&offset=${offset}${filter === "all" ? "" : `&status=${filter}`}`;
+  const listPath = `/api/conversations?limit=${PAGE_SIZE}&offset=${offset}${filter === "all" ? "" : `&status=${filter}`}${channel === "all" ? "" : `&channel=${channel}`}${priority === "all" ? "" : `&priority=${priority}`}`;
   const list = useApiQuery<PageResponse<ConversationListItem>>(listPath, organizationId);
   const detail = useApiQuery<ConversationDetail>(
     selectedId ? `/api/conversations/${selectedId}` : null,
@@ -57,10 +62,40 @@ export default function InboxPage() {
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <div className="mb-4">
         <h1 className="text-2xl font-semibold">Inbox</h1>
-        <p className="mt-1 text-sm text-slate-600">Instagram direct messages received by your connected accounts.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Conversations from Instagram, WhatsApp, Messenger, email, and the website widget.
+        </p>
       </div>
       <div className="grid min-h-0 flex-1 grid-cols-[20rem_1fr_18rem] overflow-hidden rounded-xl border border-slate-200 bg-white">
         <section className="flex min-h-0 flex-col border-r border-slate-200">
+          <div className="flex flex-wrap gap-1 border-b border-slate-200 p-2">
+            {CHANNELS.map((value) => (
+              <button
+                key={value}
+                onClick={() => {
+                  setChannel(value);
+                  setOffset(0);
+                }}
+                className={`rounded-md px-2 py-1 text-xs capitalize ${channel === value ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                {value === "webchat" ? "Website" : value}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-1 border-b border-slate-200 p-2">
+            {PRIORITIES.map((value) => (
+              <button
+                key={value}
+                onClick={() => {
+                  setPriority(value);
+                  setOffset(0);
+                }}
+                className={`rounded-md px-2 py-1 text-xs capitalize ${priority === value ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"}`}
+              >
+                {value === "all" ? "Any priority" : value}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-1 border-b border-slate-200 p-2">
             {FILTERS.map((option) => (
               <button
@@ -83,7 +118,7 @@ export default function InboxPage() {
             )}
             {list.data?.items.length === 0 && (
               <p className="p-4 text-sm text-slate-500">
-                No conversations yet. They appear here when customers message a connected Instagram account.
+                No conversations yet. They appear here when a customer messages a connected channel.
               </p>
             )}
             <ul>
@@ -104,7 +139,10 @@ export default function InboxPage() {
                         ? `${item.last_message.sender_type === "business" ? "You: " : ""}${messageText(item.last_message)}`
                         : "No messages"}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-400">{formatDateTime(item.last_message_at)}</p>
+                    <p className="mt-0.5 text-xs capitalize text-slate-400">
+                      {item.channel_type === "webchat" ? "Website" : item.channel_type} · {item.priority} ·{" "}
+                      {formatDateTime(item.last_message_at)}
+                    </p>
                   </button>
                 </li>
               ))}
@@ -214,7 +252,7 @@ function AiPanel({
   const [draftText, setDraftText] = useState("");
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"analyze" | "reply" | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!latestId) return;
@@ -223,7 +261,7 @@ function AiPanel({
       .then((loaded) => {
         if (!active) return;
         setState(loaded);
-        setDraftText(loaded.draft?.reply_text ?? "");
+        setDraftText(loaded.draft?.edited_text || loaded.draft?.reply_text || "");
       })
       .catch(() => {
         if (active) setState(null);
@@ -234,6 +272,13 @@ function AiPanel({
   }, [latestId, organizationId]);
 
   if (!latest) return null;
+
+  async function reloadDraft() {
+    const loaded = await api<AIMessageState>(`/api/ai/messages/${latestId}`, { organizationId });
+    setState(loaded);
+    setDraftText(loaded.draft?.edited_text || loaded.draft?.reply_text || "");
+    setEditing(false);
+  }
 
   async function run(path: string, kind: "analyze" | "reply") {
     setBusy(kind);
@@ -247,18 +292,34 @@ function AiPanel({
         });
         setState((current) => ({ analysis, draft: current?.draft ?? null }));
       } else {
-        const draft = await api<AIDraft>(path, {
+        await api<AIDraft>(path, {
           method: "POST",
           body: { message_id: latestId },
           organizationId,
         });
-        const loaded = await api<AIMessageState>(`/api/ai/messages/${latestId}`, { organizationId });
-        setDraftText(loaded.draft?.reply_text ?? draft.reply_text ?? "");
-        setEditing(false);
-        setState(loaded);
+        await reloadDraft();
       }
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Something went wrong. Please try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function review(action: "approve" | "reject" | "escalate" | "edit") {
+    if (!state?.draft) return;
+    setBusy(action);
+    setError(null);
+    try {
+      const body = action === "edit" ? { text: draftText.trim() } : {};
+      await api<AIDraft>(`/api/ai/drafts/${state.draft.id}/${action}`, {
+        method: "POST",
+        organizationId,
+        body,
+      });
+      await reloadDraft();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Could not update the draft.");
     } finally {
       setBusy(null);
     }
@@ -308,45 +369,140 @@ function AiPanel({
         <p className="mt-3 text-xs text-slate-500">No analysis yet for the latest customer message.</p>
       )}
       {state?.draft && (
-        <div className="mt-3">
-          <div className="mb-1 flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-500">Draft only — nothing is sent to Instagram</p>
-            <button
-              type="button"
-              onClick={() => setEditing((value) => !value)}
-              className="text-xs font-medium text-slate-700 hover:underline"
-            >
-              {editing ? "Done" : "Edit"}
-            </button>
-          </div>
+        <DraftDetails
+          draft={state.draft}
+          draftText={draftText}
+          editing={editing}
+          busy={busy}
+          canReview={canGenerate}
+          onChange={setDraftText}
+          onEdit={() => {
+            setDraftText(state.draft?.edited_text || state.draft?.reply_text || "");
+            setEditing(true);
+          }}
+          onSave={() => void review("edit")}
+          onApprove={() => void review("approve")}
+          onReject={() => void review("reject")}
+          onEscalate={() => void review("escalate")}
+        />
+      )}
+    </div>
+  );
+}
+
+const DRAFT_STATUS: Record<string, string> = {
+  generated: "Draft",
+  review_required: "Review required",
+  approved: "Approved",
+  rejected: "Rejected",
+  edited: "Edited",
+  expired: "Expired",
+};
+
+function DraftDetails({
+  draft,
+  draftText,
+  editing,
+  busy,
+  canReview,
+  onChange,
+  onEdit,
+  onSave,
+  onApprove,
+  onReject,
+  onEscalate,
+}: {
+  draft: AIDraft;
+  draftText: string;
+  editing: boolean;
+  busy: string | null;
+  canReview: boolean;
+  onChange: (value: string) => void;
+  onEdit: () => void;
+  onSave: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+  onEscalate: () => void;
+}) {
+  const flags = draft.guardrail_results?.flags ?? [];
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium text-slate-500">Draft only — nothing is sent to Instagram</p>
+      <dl className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+        <div>
+          <dt className="text-slate-500">Risk</dt>
+          <dd className="font-medium uppercase">{draft.risk_level}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Status</dt>
+          <dd className="font-medium">{DRAFT_STATUS[draft.status] ?? draft.status}</dd>
+        </div>
+        <div>
+          <dt className="text-slate-500">Sent</dt>
+          <dd className="font-medium">Not sent</dd>
+        </div>
+      </dl>
+      {editing ? (
+        <textarea
+          value={draftText}
+          onChange={(event) => onChange(event.target.value)}
+          rows={3}
+          aria-label="Edit AI draft"
+          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        />
+      ) : (
+        <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800">
+          {draftText || "No safe draft text."}
+        </p>
+      )}
+      <div className="mt-2 text-xs text-slate-600">
+        <p className="font-medium text-slate-500">Sources used</p>
+        {draft.sources.length === 0 ? (
+          <p className="mt-1">No relevant business knowledge found.</p>
+        ) : (
+          <ul className="mt-1 space-y-1">
+            {draft.sources.map((source) => (
+              <li key={source.chunk_id}>
+                {source.document_name}
+                {source.page ? ` — page ${source.page}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        <span className="font-medium text-slate-500">Guardrails. </span>
+        {flags.length === 0 ? "No issues." : `Requires review: ${flags.map((flag) => flag.code.replaceAll("_", " ")).join(", ")}`}
+      </p>
+      {draft.escalation_required && (
+        <p className="mt-1 text-xs text-amber-800">Escalated: {draft.escalation_reason || "Needs a person."}</p>
+      )}
+      {canReview && (
+        <div className="mt-3 flex flex-wrap gap-2">
           {editing ? (
-            <textarea
-              value={draftText}
-              onChange={(event) => setDraftText(event.target.value)}
-              rows={3}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            />
+            <ReviewButton label="Save edit" disabled={busy !== null || !draftText.trim()} onClick={onSave} />
           ) : (
-            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-800">{draftText || "No safe draft text."}</p>
+            <ReviewButton label="Edit" disabled={busy !== null} onClick={onEdit} />
           )}
-          <div className="mt-2 text-xs text-slate-600">
-            <p className="font-medium text-slate-500">Sources used</p>
-            {state.draft.sources.length === 0 ? (
-              <p className="mt-1">No relevant business knowledge found.</p>
-            ) : (
-              <ul className="mt-1 space-y-1">
-                {state.draft.sources.map((source) => (
-                  <li key={source.chunk_id}>
-                    {source.document_name}
-                    {source.page ? ` — page ${source.page}` : ""}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <ReviewButton label="Approve" disabled={busy !== null} onClick={onApprove} />
+          <ReviewButton label="Reject" disabled={busy !== null} onClick={onReject} />
+          <ReviewButton label="Escalate" disabled={busy !== null} onClick={onEscalate} />
         </div>
       )}
     </div>
+  );
+}
+
+function ReviewButton({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-60"
+    >
+      {label}
+    </button>
   );
 }
 

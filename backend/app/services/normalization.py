@@ -25,6 +25,7 @@ from app.models import (
     MessageType,
     SenderType,
 )
+from app.models.channel import ChannelType, ConversationPriority
 
 logger = logging.getLogger("socialpilot.normalization")
 
@@ -59,7 +60,10 @@ async def normalize_message_event(
         return
 
     customer_id = await _upsert_customer(session, account, customer_user_id)
-    conversation_id = await _active_conversation(session, account, customer_id)
+    from app.services.channel_normalization import ensure_channel
+
+    channel_id = await ensure_channel(session, account.organization_id, ChannelType.INSTAGRAM)
+    conversation_id = await _active_conversation(session, account, customer_id, channel_id)
     message_id = await session.scalar(
         insert(Message)
         .values(
@@ -68,6 +72,10 @@ async def normalize_message_event(
             customer_id=customer_id,
             instagram_account_id=account.id,
             external_message_id=event.external_id,
+            channel_id=channel_id,
+            channel_type=ChannelType.INSTAGRAM,
+            sender_identifier=customer_user_id,
+            receiver_identifier=account.instagram_account_id,
             sender_type=SenderType.BUSINESS if from_business else SenderType.CUSTOMER,
             content=message.get("text"),
             message_type=_message_type(message),
@@ -82,6 +90,27 @@ async def normalize_message_event(
         return
 
     await _touch_conversation(session, conversation_id, event.occurred_at)
+    if not from_business:
+        from app.services.automation import on_customer_message
+
+        await on_customer_message(
+            session,
+            account.organization_id,
+            customer_id,
+            conversation_id,
+            message_id,
+            message.get("text"),
+        )
+        from app.services.intelligence_engine import observe_customer_message
+
+        await observe_customer_message(
+            session,
+            account.organization_id,
+            customer_id,
+            conversation_id,
+            message_id,
+            message.get("text"),
+        )
     logger.info(
         "message_created",
         extra={"fields": {**log_fields, "message_id": str(message_id)}},
@@ -110,6 +139,8 @@ async def _upsert_customer(
         organization_id=account.organization_id,
         instagram_account_id=account.id,
         instagram_user_id=instagram_user_id,
+        channel_type=ChannelType.INSTAGRAM,
+        external_user_id=instagram_user_id,
         is_active=True,
         created_at=now,
         updated_at=now,
@@ -132,11 +163,17 @@ async def _upsert_customer(
                 }
             },
         )
+        from app.services.automation import on_customer_created
+
+        await on_customer_created(session, account.organization_id, row.id)
     return row.id
 
 
 async def _active_conversation(
-    session: AsyncSession, account: InstagramAccount, customer_id: uuid.UUID
+    session: AsyncSession,
+    account: InstagramAccount,
+    customer_id: uuid.UUID,
+    channel_id: uuid.UUID,
 ) -> uuid.UUID:
     # The retry covers an agent closing the conversation between our insert and select.
     for _ in range(3):
@@ -146,6 +183,9 @@ async def _active_conversation(
                 organization_id=account.organization_id,
                 customer_id=customer_id,
                 instagram_account_id=account.id,
+                channel_id=channel_id,
+                channel_type=ChannelType.INSTAGRAM,
+                priority=ConversationPriority.MEDIUM,
             )
             .on_conflict_do_nothing(index_elements=["customer_id"], index_where=_ACTIVE_PREDICATE)
             .returning(Conversation.id)
